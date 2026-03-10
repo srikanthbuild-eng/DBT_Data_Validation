@@ -1,0 +1,94 @@
+version: 2
+
+models:
+  - name: NDC_FileValidation_SourceData
+    description: "NDC File Data validation checks"
+    config:
+      tags: ['validation','profiling']  
+    
+    tests:
+      - column_null_check:
+          columns: "PlaceofService,BillType"
+          threshold: 5
+          test_name: "PlaceofService_BillType_NullCheck"
+      - column_null_check:
+          columns: "PrimaryDiagCode,SecondaryDiagCode,DiagCode3,DiagCode4,DiagCode5"
+          threshold: 5
+          test_name: "DX1_DX5_NullCheck"
+          
+      - reference_table_check:
+          source_columns: ["REPLACE(PrimaryDiagCode, '.', '')", "REPLACE(SecondaryDiagCode, '.', '')"]
+          lookup_table: "Contract.MSTR.ICD_Curr"
+          lookup_column: "DiagnosisCode_NoDec"
+          threshold: 1
+          test_name: "DX1_DX2_Lookup_Check"
+      - reference_table_check:
+          source_columns: ["LEFT(LTRIM(RTRIM(ServiceCode)), 5)"]
+          lookup_table: "Contract.MSTR.CPT_Curr"
+          lookup_column: "ServiceCode"
+          threshold: 5
+          test_name: "ServiceCode_Lookup_Check"
+
+      - conditional_value_check:
+          column: "ClaimStatus"
+          match_values: ["PAID", "P"]
+          # Ensures that paid claims have a positive service paid amount
+          check_column: "CAST(ServicePaidAmount as money)"
+          check_condition: "< 0"
+          threshold: 5
+          test_name: "PaidClaims_PositivePaidAmount_Check"
+      - conditional_value_check:         
+          column: "ClaimStatus"
+          match_values: ["DENIED", "D"]
+          check_column: "CAST(ServicePaidAmount as money)"
+          # Ensures that denied claims have a zero paid amount, as any non-zero value would be inconsistent.
+          check_condition: "!= 0"
+          threshold: 5
+          test_name: "DeniedClaims_ZeroPaidAmount_Check"
+      - conditional_value_check:
+          column: "ClaimStatus"
+          match_values: ["REVERSED", "R"]
+          check_column: "CAST(ServicePaidAmount as money)"
+          # Ensures that reversed claims do not have a positive service paid amount
+          check_condition: "> 0"
+          threshold: 5
+          test_name: "ReverseClaims_NegativeAmount_Check"
+      - conditional_value_check:
+          column: "CAST(AllowedAmount as money)"
+          match_values: [0]
+          check_column: "CAST(ServicePaidAmount as money)"
+          # Ensures that when the allowed amount is zero, the service paid amount should not be non-zero, as this would indicate an inconsistency.
+          check_condition: "!= 0"
+          threshold: 5
+          test_name: "Zero_AllowedAmount_NonZero_PaidAmount_Check"
+      - conditional_value_check:
+          column: "CAST(SubmittedAmount as money)"
+          match_values: [0]
+          check_column: "CAST(ServicePaidAmount as money)"
+          # Ensures that when the submitted amount is zero, the service paid amount should not have a non-zero value.
+          check_condition: "!= 0"
+          threshold: 5
+          test_name: "Zero_SubmittedAmount_NonZero_PaidAmount_Check"
+
+      - data_integrity_check: 
+          sql: |
+                SELECT ClaimNumber, MissingLines
+                FROM (
+                      SELECT ClaimNumber,LEAD(CAST(ClaimLine AS INT)) OVER (PARTITION BY ClaimNumber ORDER BY CAST(ClaimLine AS INT)) - CAST(ClaimLine AS INT) - 1 AS MissingLines
+                      FROM {{ '{{ model }}' }}
+                      ) AS MissingLinesTable
+                WHERE MissingLines > 0
+          threshold: 0
+          test_name: "Missing_ClaimLines_Check"
+
+      - client_specific_duplicate_check:
+          rules:
+            - HealthPlan: MolinaOH
+              RuleCategory: Client_Specific_Checks
+              columns: [ClaimNumber, ClaimLine]
+              threshold: 0
+            - HealthPlan: HumanaAZ
+              RuleCategory: Client_Specific_Checks
+              columns: [ClaimNumber, ClaimLine, DOSFrom, PaidDate, ServicePaidAmount]
+              threshold: 0
+          test_name: "Client_Specific_Duplicate_Check"

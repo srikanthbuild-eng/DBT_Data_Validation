@@ -1,0 +1,32 @@
+name: NDC_Data_Validation
+version: '1.0'
+config-version: 2
+
+profile: NDC_Data_Validation
+
+model-paths: ["models"]
+macro-paths: ["macros"]
+seed-paths: ["seeds"]
+test-paths: ["tests"]
+
+models:
+  staging:
+    +materialized: ephemeral
+
+  validations:
+    +tags: ['validation']
+
+  profiling:
+    +tags: ['profiling']
+    
+    
+vars:
+  profiling_columns:
+  - MemberID
+  - DOSFrom
+  - PaidDate
+  - ServiceCode
+  - ClaimStatus
+  - LineOfBusiness
+  - ServicePaidAmount
+  - PrimaryDiagCode 
